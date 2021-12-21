@@ -148,6 +148,7 @@ if __name__ == '__main__':
     buffer_array = []
     i = 0
     b = 0
+    errors = 0
     header = mount_header(number_of_points, pcd_fields, binary=True)
     f2.write(bytes(header.encode('ascii')))
     for line in tqdm(f1):
@@ -159,12 +160,14 @@ if __name__ == '__main__':
         line_s = line.strip().split(' ')
         if len(line_s) != len(in_fields):
             print('\nFields has {} dimensions, but the lines of the file has {}.'.format(len(in_fields), len(line_s)))
-            exit()
+            print('Data line: {}'.format(line_s))
+            line_s = [0.0 for x in in_fields]
+            errors += 1
         l = mount_data_line(line_s, in_fields, pcd_fields, binary=True)
         buffer_array += l
         n += 1
         i += 1
     if i > 1:
         f2.write(bytes(pack("%sf" % len(buffer_array), *buffer_array)))
-    print('Done. {} points were processed.'.format(n))
+    print('Done. {} points were processed. Errors: {} lines'.format(n, errors))
     f2.close()
