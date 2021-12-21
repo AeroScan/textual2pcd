@@ -13,8 +13,6 @@ import re
 import pickle
 from math import sqrt, acos, pi
 
-import json
-
 VERBOSE = False
 
 def readH5(filename):
@@ -252,16 +250,9 @@ def calculateError(h5_file):
     points = h5_file['gt_points']
     normals = h5_file['gt_normals']
 
-    results = {
-        'mean_distance': 0,
-        'mean_normal_dev': 0,
-        'soups': {},
-    }
+    results = []
 
     soup_prog = re.compile('(.*)_soup_([0-9]+)$')
-    n_soups = 0
-    total_mean_distance = 0
-    total_mean_normal_dev = 0
     if VERBOSE:
         print('\nCalculating Deviation Errors...')
     for key in tqdm(list(h5_file.keys())) if VERBOSE else list(h5_file.keys()):
@@ -274,30 +265,23 @@ def calculateError(h5_file):
             mean_normal_dev = 0
             for i in indices:
                 distance, normal_dev = deviation_functions[tp](points[i], normals[i], data)
-                mean_distance += distance
-                mean_normal_dev += normal_dev
+                mean_distance += abs(distance)
+                mean_normal_dev += abs(normal_dev)
             if len(indices) > 0:
                 mean_distance /= len(indices)
                 mean_normal_dev /= len(indices)
-            results['soups'][key] = {'mean_distance': mean_distance, 'mean_normal_dev': mean_normal_dev} 
-            total_mean_distance += mean_distance
-            total_mean_normal_dev += mean_normal_dev
-            n_soups += 1
-    total_mean_distance /= n_soups
-    total_mean_normal_dev /= n_soups
 
-    results['mean_distance'] = total_mean_distance
-    results['mean_normal_dev'] = total_mean_normal_dev
+            results.append({'type': tp, 'mean_distance': mean_distance, 'mean_normal_dev': mean_normal_dev})
 
     return results
-    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Evaluate Geometric Primitive Fitting Results, works for dataset validation and for methods results')
     parser.add_argument('folder', type=str, help='dataset folder.')
     parser.add_argument('--h5_folder_name', type=str, default = 'h5', help='h5 folder name.')
     parser.add_argument('--result_folder_name', type=str, default = 'val', help='validation folder name.')
-    parser.add_argument('-v', '--verbose', action='store_true', help='.')
+    parser.add_argument('-v', '--verbose', action='store_true', help='show more verbose logs.')
+    parser.add_argument('-s', '--segmentation_gt', action='store_true', help='write segmentation ground truth.')
 
     args = vars(parser.parse_args())
 
@@ -305,6 +289,7 @@ if __name__ == '__main__':
     h5_folder_name = join(folder_name, args['h5_folder_name'])
     result_folder_name = join(folder_name, args['result_folder_name'])
     VERBOSE = args['verbose']
+    write_segmentation_gt = args['segmentation_gt']
  
     if exists(h5_folder_name):
         h5_files = sorted([f for f in listdir(h5_folder_name) if isfile(join(h5_folder_name, f))])
@@ -317,6 +302,10 @@ if __name__ == '__main__':
         rmtree(result_folder_name)
     mkdir(result_folder_name)
 
+    distance_errors = 0
+    normal_dev_errors = 0
+    counters = {'total': 0}
+    errors = {'total': {'mean_distance': 0.0, 'mean_normal_dev': 0.0}}
     for h5_filename in h5_files if VERBOSE else tqdm(h5_files):
         if VERBOSE:
             print(f'\n-- Processing file {h5_filename}...')
@@ -327,19 +316,55 @@ if __name__ == '__main__':
 
         h5_file = readH5(join(h5_folder_name, h5_filename))
 
-        labels_type = createLabelsByType(h5_file)
+        if write_segmentation_gt:
+            labels_type = createLabelsByType(h5_file)
 
-        points = h5_file['gt_points']
-        labels = h5_file['gt_labels']
+            points = h5_file['gt_points']
+            labels = h5_file['gt_labels']
 
-        instances_filename = f'{base_filename}_instances.obj'
-        writeSegmentedPointCloudOBJ(join(result_folder_name, instances_filename), points, labels)
+            instances_filename = f'{base_filename}_instances.obj'
+            writeSegmentedPointCloudOBJ(join(result_folder_name, instances_filename), points, labels)
 
-        types_filename = f'{base_filename}_types.obj'
-        colors = [(255,255,255), (255,0,0), (0,255,0), (0,0,255), (255,255,0)]
-        writeSegmentedPointCloudOBJ(join(result_folder_name, types_filename), points, labels_type, colors=colors)
-
+            types_filename = f'{base_filename}_types.obj'
+            colors = [(255,255,255), (255,0,0), (0,255,0), (0,0,255), (255,255,0)]
+            writeSegmentedPointCloudOBJ(join(result_folder_name, types_filename), points, labels_type, colors=colors)
+        
         error_results = calculateError(h5_file)
 
+        for e in error_results:
+            if e['mean_distance'] > 0.05:
+                distance_errors += 1
+            if e['mean_normal_dev'] > 0.05:
+                normal_dev_errors += 1   
+            
+            if e['type'] not in counters.keys():
+                counters[e['type']] = 1
+                errors[e['type']] = {'mean_distance': e['mean_distance'], 'mean_normal_dev': e['mean_normal_dev']}
+            else:
+                counters[e['type']] += 1
+                errors[e['type']]['mean_distance'] += e['mean_distance']
+                errors[e['type']]['mean_normal_dev'] += e['mean_normal_dev']
+
+            counters['total'] += 1
+            errors['total']['mean_distance'] += e['mean_distance']
+            errors['total']['mean_normal_dev'] += e['mean_normal_dev']
+        
         if VERBOSE:
-            print(f'{h5_filename} is processed.')        
+            print(f'{h5_filename} is processed.')
+
+        for key in errors.keys():
+            errors[key]['mean_distance'] /= counters[key]
+            errors[key]['mean_normal_dev'] /= counters[key]
+
+        print('\nTESTING REPORT:')
+        print('\n\t- Number of Processed Primitives:', counters['total'])
+        print('\t- Distance Error Rate:', (distance_errors/counters['total'])*100, '%')
+        print('\t- Normal Error Rate:', (normal_dev_errors/counters['total'])*100, '%')
+        print()
+        for key in errors.keys():
+            name = key[0].upper() + key[1:]
+            print(f'\t- Mean {name} Distance Error:', errors[key]['mean_distance'])
+        print()
+        for key in errors.keys():
+            name = key[0].upper() + key[1:]
+            print(f'\t- Mean {name} Normal Error:', errors[key]['mean_normal_dev'])
