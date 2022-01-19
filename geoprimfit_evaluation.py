@@ -5,7 +5,7 @@ from shutil import rmtree
 from os import listdir, mkdir
 import argparse
 
-from numpy.core.fromnumeric import mean
+from numpy.core.fromnumeric import mean, shape
 import h5py
 from tqdm import tqdm
 import random
@@ -250,28 +250,38 @@ def calculateError(h5_file):
     points = h5_file['gt_points']
     normals = h5_file['gt_normals']
 
-    results = []
-
     soup_prog = re.compile('(.*)_soup_([0-9]+)$')
     if VERBOSE:
         print('\nCalculating Deviation Errors...')
-    for key in tqdm(list(h5_file.keys())) if VERBOSE else list(h5_file.keys()):
+    keys = []
+    for key in list(h5_file.keys()):
         m = soup_prog.match(key)
         if m is not None:
-            indices = h5_file[key]['gt_indices'][()]
-            data = pickle.loads(h5_file[key].attrs['meta'])
-            tp = data['type']
-            mean_distance = 0
-            mean_normal_dev = 0
-            for i in indices:
-                distance, normal_dev = deviation_functions[tp](points[i], normals[i], data)
-                mean_distance += abs(distance)
-                mean_normal_dev += abs(normal_dev)
-            if len(indices) > 0:
-                mean_distance /= len(indices)
-                mean_normal_dev /= len(indices)
+            keys.append(key)
+    
+    results = {}
 
-            results.append({'type': tp, 'mean_distance': mean_distance, 'mean_normal_dev': mean_normal_dev})
+    for i, key in tqdm(enumerate(keys)) if VERBOSE else enumerate(keys):
+        indices = h5_file[key]['gt_indices'][()]
+        data = pickle.loads(h5_file[key].attrs['meta'])
+        tp = data['type']
+        mean_distance = 0
+        mean_normal = 0
+        for i in indices:
+            distance, normal_dev = deviation_functions[tp](points[i], normals[i], data)
+            mean_distance += abs(distance)
+            mean_normal += abs(normal_dev)
+        if len(indices) > 0:
+            mean_distance /= len(indices)
+            mean_normal /= len(indices)
+
+        if tp in results.keys():
+            results[tp]['mean_distance'] = np.append(results[tp]['mean_distance'], mean_distance)
+            results[tp]['mean_normal'] = np.append(results[tp]['mean_normal'], mean_normal)
+        else:
+            results[tp] = {}
+            results[tp]['mean_distance'] = np.array([mean_distance])
+            results[tp]['mean_normal'] = np.array([mean_normal])
 
     return results
 
@@ -282,6 +292,8 @@ if __name__ == '__main__':
     parser.add_argument('--result_folder_name', type=str, default = 'val', help='validation folder name.')
     parser.add_argument('-v', '--verbose', action='store_true', help='show more verbose logs.')
     parser.add_argument('-s', '--segmentation_gt', action='store_true', help='write segmentation ground truth.')
+    parser.add_argument('-md', '--max_distance_deviation', type=float, default=0.5, help='max distance deviation.')
+    parser.add_argument('-mn', '--max_normal_deviation', type=float, default=10, help='max normal deviation.')
 
     args = vars(parser.parse_args())
 
@@ -290,6 +302,8 @@ if __name__ == '__main__':
     result_folder_name = join(folder_name, args['result_folder_name'])
     VERBOSE = args['verbose']
     write_segmentation_gt = args['segmentation_gt']
+    max_distance_deviation = args['max_distance_deviation']
+    max_normal_deviation = args['max_normal_deviation']*pi/180.
  
     if exists(h5_folder_name):
         h5_files = sorted([f for f in listdir(h5_folder_name) if isfile(join(h5_folder_name, f))])
@@ -297,15 +311,13 @@ if __name__ == '__main__':
         if VERBOSE:
             print('\nThere is no h5 folder.\n')
         exit()
+    
+    if write_segmentation_gt:
+        if exists(result_folder_name):
+            rmtree(result_folder_name)
+        mkdir(result_folder_name)
 
-    if exists(result_folder_name):
-        rmtree(result_folder_name)
-    mkdir(result_folder_name)
-
-    distance_errors = 0
-    normal_dev_errors = 0
-    counters = {'total': 0}
-    errors = {'total': {'mean_distance': 0.0, 'mean_normal_dev': 0.0}}
+    
     for h5_filename in h5_files if VERBOSE else tqdm(h5_files):
         if VERBOSE:
             print(f'\n-- Processing file {h5_filename}...')
@@ -331,40 +343,39 @@ if __name__ == '__main__':
         
         error_results = calculateError(h5_file)
 
-        for e in error_results:
-            if e['mean_distance'] > 0.05:
-                distance_errors += 1
-            if e['mean_normal_dev'] > 0.05:
-                normal_dev_errors += 1   
-            
-            if e['type'] not in counters.keys():
-                counters[e['type']] = 1
-                errors[e['type']] = {'mean_distance': e['mean_distance'], 'mean_normal_dev': e['mean_normal_dev']}
-            else:
-                counters[e['type']] += 1
-                errors[e['type']]['mean_distance'] += e['mean_distance']
-                errors[e['type']]['mean_normal_dev'] += e['mean_normal_dev']
-
-            counters['total'] += 1
-            errors['total']['mean_distance'] += e['mean_distance']
-            errors['total']['mean_normal_dev'] += e['mean_normal_dev']
+        number_of_primitives = 0
+        distance_error = 0
+        normal_dev_error = 0
+        mean_distance = 0.
+        mean_normal_dev = 0.
+        for key in error_results.keys():
+            number_of_primitives += len(error_results[key]['mean_distance'])
+            distance_error += np.count_nonzero(error_results[key]['mean_distance'] > max_distance_deviation)
+            normal_dev_error += np.count_nonzero(error_results[key]['mean_normal'] > max_normal_deviation)
+            mean_distance += np.sum(error_results[key]['mean_distance'])
+            mean_normal_dev += np.sum(error_results[key]['mean_normal'])
+        
+        distance_error /= number_of_primitives
+        normal_dev_error /= number_of_primitives
+        mean_distance /= number_of_primitives
+        mean_normal_dev /= number_of_primitives
         
         if VERBOSE:
             print(f'{h5_filename} is processed.')
 
-        for key in errors.keys():
-            errors[key]['mean_distance'] /= counters[key]
-            errors[key]['mean_normal_dev'] /= counters[key]
-
         print('\nTESTING REPORT:')
-        print('\n\t- Number of Processed Primitives:', counters['total'])
-        print('\t- Distance Error Rate:', (distance_errors/counters['total'])*100, '%')
-        print('\t- Normal Error Rate:', (normal_dev_errors/counters['total'])*100, '%')
-        print()
-        for key in errors.keys():
+        print('\n- Total:')
+        print('\t- Number of Primitives:', number_of_primitives)
+        print('\t- Distance Error Rate:', (distance_error)*100, '%')
+        print('\t- Normal Error Rate:', (normal_dev_error)*100, '%')
+        print('\t- Mean Distance Error:', mean_distance)
+        print('\t- Mean Normal Error:', mean_normal_dev)
+        for key in error_results.keys():
             name = key[0].upper() + key[1:]
-            print(f'\t- Mean {name} Distance Error:', errors[key]['mean_distance'])
-        print()
-        for key in errors.keys():
-            name = key[0].upper() + key[1:]
-            print(f'\t- Mean {name} Normal Error:', errors[key]['mean_normal_dev'])
+            number_of_primitives_loc = len(error_results[key]['mean_distance'])
+            print(f'\n- {name}:')
+            print('\t- Number of Primitives:', number_of_primitives_loc)
+            print('\t- Distance Error Rate:', (np.count_nonzero(error_results[key]['mean_distance'] > max_distance_deviation)/number_of_primitives_loc)*100, '%')
+            print('\t- Normal Error Rate:', (np.count_nonzero(error_results[key]['mean_normal'] > max_normal_deviation)/number_of_primitives_loc)*100, '%')
+            print('\t- Mean Distance Error:', np.mean(error_results[key]['mean_distance']))
+            print('\t- Mean Normal Error:', np.mean(error_results[key]['mean_normal']))
