@@ -340,8 +340,16 @@ if __name__ == '__main__':
             rmtree(box_plot_folder_name)
         mkdir(box_plot_folder_name)
 
+    log_folder_name = join(result_folder_name, 'log')
     
+    if exists(log_folder_name):
+        rmtree(log_folder_name)
+    mkdir(log_folder_name)
+
+
     for h5_filename in h5_files if VERBOSE else tqdm(h5_files):
+        report = ''
+        report+= f'\n-- Processing file {h5_filename}...\n'
         if VERBOSE:
             print(f'\n-- Processing file {h5_filename}...')
 
@@ -383,8 +391,17 @@ if __name__ == '__main__':
         mean_distance /= number_of_primitives
         mean_normal_dev /= number_of_primitives
         
+        report+= f'{h5_filename} is processed.\n'
         if VERBOSE:
             print(f'{h5_filename} is processed.')
+
+        report+= '\nTESTING REPORT:\n'
+        report+= '\n- Total:\n'
+        report+= f'\t- Number of Primitives: {number_of_primitives}\n' 
+        report+= f'\t- Distance Error Rate: {(distance_error)*100} %\n'
+        report+= f'\t- Normal Error Rate: {(normal_dev_error)*100} %\n'
+        report+= f'\t- Mean Distance Error: {mean_distance}\n'
+        report+= f'\t- Mean Normal Error: {mean_normal_dev}\n' 
 
         print('\nTESTING REPORT:')
         print('\n- Total:')
@@ -399,15 +416,30 @@ if __name__ == '__main__':
         for key in error_results.keys():
             name = key[0].upper() + key[1:]
             number_of_primitives_loc = len(error_results[key]['mean_distance'])
+            distance_error_rate = (np.count_nonzero(error_results[key]['mean_distance'] > max_distance_deviation)/number_of_primitives_loc)*100
+            normal_error_rate = (np.count_nonzero(error_results[key]['mean_normal'] > max_normal_deviation)/number_of_primitives_loc)*100
+            distance_error = np.mean(error_results[key]['mean_distance'])
+            normal_error = np.mean(error_results[key]['mean_normal'])
+
+            report+= f'\n- {name}:\n'
+            report+= f'\t- Number of Primitives: {number_of_primitives_loc}\n' 
+            report+= f'\t- Distance Error Rate: {distance_error_rate} %\n'
+            report+= f'\t- Normal Error Rate: {normal_error_rate} %\n'
+            report+= f'\t- Mean Distance Error: {distance_error}\n'
+            report+= f'\t- Mean Normal Error: {normal_error}\n' 
+
             print(f'\n- {name}:')
             print('\t- Number of Primitives:', number_of_primitives_loc)
-            print('\t- Distance Error Rate:', (np.count_nonzero(error_results[key]['mean_distance'] > max_distance_deviation)/number_of_primitives_loc)*100, '%')
-            print('\t- Normal Error Rate:', (np.count_nonzero(error_results[key]['mean_normal'] > max_normal_deviation)/number_of_primitives_loc)*100, '%')
-            print('\t- Mean Distance Error:', np.mean(error_results[key]['mean_distance']))
-            print('\t- Mean Normal Error:', np.mean(error_results[key]['mean_normal']))
+            print('\t- Distance Error Rate:', distance_error_rate, '%')
+            print('\t- Normal Error Rate:', normal_error_rate, '%')
+            print('\t- Mean Distance Error:', distance_error)
+            print('\t- Mean Normal Error:', normal_error)
             data_distance.append(error_results[key]['mean_distance'])
             data_normal.append(error_results[key]['mean_normal'])
             labels.append(name)
+
+        with open(join(log_folder_name, f'{base_filename}.txt'), 'w') as f:
+            f.write(report)
         if box_plot:
             fig, (ax1, ax2) = plt.subplots(2, 1)
             fig.tight_layout(pad=2.0)
@@ -419,3 +451,4 @@ if __name__ == '__main__':
             plt.show(block=False)
             plt.pause(10)
             plt.close()
+        
