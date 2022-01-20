@@ -5,13 +5,14 @@ from shutil import rmtree
 from os import listdir, mkdir
 import argparse
 
-from numpy.core.fromnumeric import mean, shape
 import h5py
 from tqdm import tqdm
 import random
 import re
 import pickle
 from math import sqrt, acos, pi
+
+import matplotlib.pyplot as plt
 
 VERBOSE = False
 
@@ -292,6 +293,7 @@ if __name__ == '__main__':
     parser.add_argument('--result_folder_name', type=str, default = 'val', help='validation folder name.')
     parser.add_argument('-v', '--verbose', action='store_true', help='show more verbose logs.')
     parser.add_argument('-s', '--segmentation_gt', action='store_true', help='write segmentation ground truth.')
+    parser.add_argument('-b', '--show_box_plot', action='store_true', help='show box plot of the data.')
     parser.add_argument('-md', '--max_distance_deviation', type=float, default=0.5, help='max distance deviation.')
     parser.add_argument('-mn', '--max_normal_deviation', type=float, default=10, help='max normal deviation.')
 
@@ -302,6 +304,7 @@ if __name__ == '__main__':
     result_folder_name = join(folder_name, args['result_folder_name'])
     VERBOSE = args['verbose']
     write_segmentation_gt = args['segmentation_gt']
+    box_plot = args['show_box_plot']
     max_distance_deviation = args['max_distance_deviation']
     max_normal_deviation = args['max_normal_deviation']*pi/180.
  
@@ -370,6 +373,9 @@ if __name__ == '__main__':
         print('\t- Normal Error Rate:', (normal_dev_error)*100, '%')
         print('\t- Mean Distance Error:', mean_distance)
         print('\t- Mean Normal Error:', mean_normal_dev)
+        data_distance = []
+        data_normal = []
+        labels = []
         for key in error_results.keys():
             name = key[0].upper() + key[1:]
             number_of_primitives_loc = len(error_results[key]['mean_distance'])
@@ -379,3 +385,14 @@ if __name__ == '__main__':
             print('\t- Normal Error Rate:', (np.count_nonzero(error_results[key]['mean_normal'] > max_normal_deviation)/number_of_primitives_loc)*100, '%')
             print('\t- Mean Distance Error:', np.mean(error_results[key]['mean_distance']))
             print('\t- Mean Normal Error:', np.mean(error_results[key]['mean_normal']))
+            data_distance.append(error_results[key]['mean_distance'])
+            data_normal.append(error_results[key]['mean_normal'])
+            labels.append(name)
+        fig, (ax1, ax2) = plt.subplots(2, 1)
+        ax1.set_title('Distance Deviation')
+        ax1.boxplot(data_distance, showfliers=False, labels=labels, autorange=True)
+        ax2.set_title('Normal Deviation')
+        ax2.boxplot(data_normal, showfliers=False, labels=labels, autorange=True)
+        plt.savefig()
+        if box_plot:
+            plt.show()
