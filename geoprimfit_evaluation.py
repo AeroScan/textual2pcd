@@ -75,7 +75,14 @@ def angle_vectors(n1, n2):
     c = -1.0 if c < -1 else c
     c =  1.0 if c >  1 else c
     return acos(c)
-        
+
+def deviation_normals(n1, n2):
+    a1 = angle_vectors(n1, n2)
+    a2 = angle_vectors(n1, -n2)
+    if abs(a1) < abs(a2):
+        return a1
+    return a2
+
 def deviation_point_line(point, normal, curve):
     A = np.array(list(curve['location'])[0:3])
     v = np.array(list(curve['direction'])[0:3])
@@ -84,7 +91,7 @@ def deviation_point_line(point, normal, curve):
     #AP vector
     AP = P - A
     #equation to calculate distance between point and line using a direction vector
-    return np.linalg.norm(np.cross(v, AP), ord=2)/np.linalg.norm(v, ord=2), abs(pi/2 - angle_vectors(v, n_p))
+    return np.linalg.norm(np.cross(v, AP), ord=2)/np.linalg.norm(v, ord=2), abs(pi/2 - deviation_normals(v, n_p))
 
 def deviation_point_circle(point, normal, curve):
     A = np.array(list(curve['location'])[0:3])
@@ -107,7 +114,7 @@ def deviation_point_circle(point, normal, curve):
     #calculanting tangent vector to the circle in that point
     n_pp = (P_p - A)/np.linalg.norm((P_p - A), ord=2)
     t = np.cross(n_pp, n)
-    return sqrt(a**2 + b**2), abs(pi/2 - angle_vectors(t, n_p))
+    return sqrt(a**2 + b**2), abs(pi/2 - deviation_normals(t, n_p))
 
 def deviation_point_sphere(point, normal, surface):
     A = np.array(list(surface['location'])[0:3])
@@ -119,7 +126,7 @@ def deviation_point_sphere(point, normal, surface):
     n_pp = AP/np.linalg.norm(AP, ord=2)
     #simple, distance from point to the center minus the sphere radius
     #angle between normals
-    return abs(distance_points(P, A) - radius), angle_vectors(n_pp, n_p)
+    return abs(distance_points(P, A) - radius), deviation_normals(n_pp, n_p)
 
 def deviation_point_plane(point, normal, surface):
     A = np.array(list(surface['location'])[0:3])
@@ -129,7 +136,7 @@ def deviation_point_plane(point, normal, surface):
     AP = P - A
     #orthogonal distance between point and plane
     #angle between normals
-    angle = angle_vectors(n, n_p)
+    angle = deviation_normals(n, n_p)
     if angle > pi/2:
         angle = pi - angle
 
@@ -163,7 +170,7 @@ def deviation_point_torus(point, normal, surface):
     BP = P - B
     n_pp = BP/np.linalg.norm(BP, ord=2)
 
-    return abs(distance_points(B, P) - radius), angle_vectors(n_pp, n_p)
+    return abs(distance_points(B, P) - radius), deviation_normals(n_pp, n_p)
 
 def deviation_point_cylinder(point, normal, surface):
     A = np.array(list(surface['location'])[0:3])
@@ -175,7 +182,7 @@ def deviation_point_cylinder(point, normal, surface):
     AP = P - A
     n_pp = AP/np.linalg.norm(AP, ord=2)
     #simple distance from point to the revolution axis line minus radius
-    return abs(deviation_point_line(point, normal, surface)[0] - radius), angle_vectors(n_pp, n_p)
+    return abs(deviation_point_line(point, normal, surface)[0] - radius), deviation_normals(n_pp, n_p)
 
 def deviation_point_cone(point, normal, surface):
     A = np.array(list(surface['location'])[0:3])
@@ -211,13 +218,13 @@ def deviation_point_cone(point, normal, surface):
             b = np.linalg.norm(P - P_p, ord=2)
             n_pp = (P_p - A)/np.linalg.norm((P_p - A), ord=2)
             t = np.cross(n_pp, v)
-            return sqrt(a**2 + b**2), abs(pi/2 - angle_vectors(t, n_p))
+            return sqrt(a**2 + b**2), abs(pi/2 - deviation_normals(t, n_p))
         
         #if not, the orthogonal distance to the circle plane is used
-        return abs(signal_dist_point_plane), angle_vectors(-v, n_p)
+        return abs(signal_dist_point_plane), deviation_normals(-v, n_p)
     #if point is above the apex, return the distance from point to apex
     elif dist_AP > dist_BP and dist_AP >= h:
-        return distance_points(P, B), angle_vectors(v, n_p)
+        return distance_points(P, B), deviation_normals(v, n_p)
 
     #if not, calculate the radius of the circle in this point height 
     r = radius*dist_BP/h
@@ -235,7 +242,7 @@ def deviation_point_cone(point, normal, surface):
     n_pp = np.cross(t, s)
 
     #distance from point to the point projected in the revolution axis line minus the current radius
-    return abs(distance_points(P, P_p) - r), angle_vectors(n_pp, n_p)
+    return abs(distance_points(P, P_p) - r), deviation_normals(n_pp, n_p)
 
 deviation_functions = {
     'line': deviation_point_line,
@@ -315,10 +322,23 @@ if __name__ == '__main__':
             print('\nThere is no h5 folder.\n')
         exit()
     
+    if exists(result_folder_name):
+        rmtree(result_folder_name)
+    mkdir(result_folder_name)
+
+    seg_folder_name = join(result_folder_name, 'seg')
+
     if write_segmentation_gt:
-        if exists(result_folder_name):
-            rmtree(result_folder_name)
-        mkdir(result_folder_name)
+        if exists(seg_folder_name):
+            rmtree(seg_folder_name)
+        mkdir(seg_folder_name)
+
+    box_plot_folder_name = join(result_folder_name, 'boxplot')
+    
+    if box_plot:
+        if exists(box_plot_folder_name):
+            rmtree(box_plot_folder_name)
+        mkdir(box_plot_folder_name)
 
     
     for h5_filename in h5_files if VERBOSE else tqdm(h5_files):
@@ -338,11 +358,11 @@ if __name__ == '__main__':
             labels = h5_file['gt_labels']
 
             instances_filename = f'{base_filename}_instances.obj'
-            writeSegmentedPointCloudOBJ(join(result_folder_name, instances_filename), points, labels)
+            writeSegmentedPointCloudOBJ(join(seg_folder_name, instances_filename), points, labels)
 
             types_filename = f'{base_filename}_types.obj'
             colors = [(255,255,255), (255,0,0), (0,255,0), (0,0,255), (255,255,0)]
-            writeSegmentedPointCloudOBJ(join(result_folder_name, types_filename), points, labels_type, colors=colors)
+            writeSegmentedPointCloudOBJ(join(seg_folder_name, types_filename), points, labels_type, colors=colors)
         
         error_results = calculateError(h5_file)
 
@@ -388,11 +408,14 @@ if __name__ == '__main__':
             data_distance.append(error_results[key]['mean_distance'])
             data_normal.append(error_results[key]['mean_normal'])
             labels.append(name)
-        fig, (ax1, ax2) = plt.subplots(2, 1)
-        ax1.set_title('Distance Deviation')
-        ax1.boxplot(data_distance, showfliers=False, labels=labels, autorange=True)
-        ax2.set_title('Normal Deviation')
-        ax2.boxplot(data_normal, showfliers=False, labels=labels, autorange=True)
-        plt.savefig()
         if box_plot:
-            plt.show()
+            fig, (ax1, ax2) = plt.subplots(2, 1)
+            fig.tight_layout(pad=2.0)
+            ax1.set_title('Distance Deviation')
+            ax1.boxplot(data_distance, labels=labels, autorange=False, meanline=True)
+            ax2.set_title('Normal Deviation')
+            ax2.boxplot(data_normal, labels=labels, autorange=False, meanline=True)
+            plt.savefig(join(box_plot_folder_name, f'{base_filename}.png'))
+            plt.show(block=False)
+            plt.pause(10)
+            plt.close()
