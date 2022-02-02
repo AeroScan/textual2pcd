@@ -28,8 +28,8 @@ def writeSegmentedPointCloudOBJ(out_filename, points, labels, colors = None):
     fout = open(out_filename, 'w')
     if VERBOSE:
         print('\nWriting Segmented Point Cloud...')
-    for i in tqdm(range(N)) if VERBOSE else range(N):
-        if colors is None:
+    if colors is None:
+        for i in tqdm(range(N)) if VERBOSE else range(N):    
             random.seed(labels[i])
             color = random.randint(0, 16000000)
             c = [0, 0, 0]
@@ -38,9 +38,11 @@ def writeSegmentedPointCloudOBJ(out_filename, points, labels, colors = None):
             c[1] = (color%255)
             color //= 255
             c[2] = (color%255)
-        else:
+            fout.write('v %f %f %f %d %d %d\n' % (points[i,0], points[i,1], points[i,2], c[0], c[1], c[2]))
+    else:
+        for i in tqdm(range(N)) if VERBOSE else range(N):
             c = colors[labels[i]]
-        fout.write('v %f %f %f %d %d %d\n' % (points[i,0], points[i,1], points[i,2], c[0], c[1], c[2]))
+            fout.write('v %f %f %f %d %d %d\n' % (points[i,0], points[i,1], points[i,2], c[0], c[1], c[2]))
     fout.close()
 
 def createLabelsByType(h5_file):
@@ -386,10 +388,11 @@ if __name__ == '__main__':
             mean_distance += np.sum(error_results[key]['mean_distance'])
             mean_normal_dev += np.sum(error_results[key]['mean_normal'])
         
-        distance_error /= number_of_primitives
-        normal_dev_error /= number_of_primitives
-        mean_distance /= number_of_primitives
-        mean_normal_dev /= number_of_primitives
+        if number_of_primitives > 0:
+            distance_error /= number_of_primitives
+            normal_dev_error /= number_of_primitives
+            mean_distance /= number_of_primitives
+            mean_normal_dev /= number_of_primitives
         
         report+= f'{h5_filename} is processed.\n'
         if VERBOSE:
@@ -444,9 +447,11 @@ if __name__ == '__main__':
             fig, (ax1, ax2) = plt.subplots(2, 1)
             fig.tight_layout(pad=2.0)
             ax1.set_title('Distance Deviation')
-            ax1.boxplot(data_distance, labels=labels, autorange=False, meanline=True)
+            if len(data_distance) > 0:
+                ax1.boxplot(data_distance, labels=labels, autorange=False, meanline=True)
             ax2.set_title('Normal Deviation')
-            ax2.boxplot(data_normal, labels=labels, autorange=False, meanline=True)
+            if len(data_distance) > 0:
+                ax2.boxplot(data_normal, labels=labels, autorange=False, meanline=True)
             plt.savefig(join(box_plot_folder_name, f'{base_filename}.png'))
             plt.show(block=False)
             plt.pause(10)
