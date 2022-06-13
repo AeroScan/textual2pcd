@@ -81,30 +81,14 @@ def mount_data_line(line_s, in_fields, pcd_fields):
                 line += [float(line_s[in_fields.index(f)])]
     return line
 
-def write_buffer(f, buffer_array, binary=False):
+def write_data(f, data, binary=False):
     if binary:
-        f.write(bytes(pack("%sf" % len(buffer_array), *buffer_array)))
+        f.write(bytes(pack("%sf" % len(data), *data)))
     else:
-        f.write('\n'.join([' '.join(map(str, x)) for x in buffer_array]))
+        f.write('\n'.join([' '.join(map(str, x)) for x in data]))
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Converts simple textual point cloud formats (TXT, XYZ, PTS) to PCD')
-    parser.add_argument('input', type=str, help='input file in .txt, .xyz or .pts.')
-    parser.add_argument('output', type=str, help='output file in .pcd.')
-    parser.add_argument('--fields', type=str, default = 'x,y,z,a,r,g,b', help='fields in order contained in textual file. Possible fields are:' + ','.join(POSSIBLE_FIELDS) + '. Put \'_\' in the fields to ignore. Default = x,y,z,a,r,g,b')
-    parser.add_argument('--buffer_size', type = int, default = 10000000, help='size of buffer to be used. It is needed to not use all the RAM from computer. Default = 10000000')
-    parser.add_argument('--number_of_points', type = int, default = 0, help='number of points in the file. It speeds-up the process when the file is TXT or XYZ. Default = 0')
-    parser.add_argument('-b', '--binary', action='store_true', help='save in binary format. Default = False')
-    args = vars(parser.parse_args())
-
-    inputname = args['input']
-    outputname = args['output']
-    in_fields = args['fields'].split(',')
-    pcd_fields = mount_pcd_fields(in_fields)
-    buffer_size = args['buffer_size']
-    number_of_points = args['number_of_points']
-    binary = args['binary']
-
+def write_pcd_by_filename(inputname, outputname, in_fields, buffer_size=10000000, binary=False):
+    print('Converting to PCD.\n')
     f1 = open(inputname, 'r')
     if inputname[-4:] == '.txt' or inputname[-4:] == '.xyz':
         print('Processing a {} file...'.format(inputname[-4:]))
@@ -122,6 +106,8 @@ if __name__ == '__main__':
     
     print('Done. {} points to be processed.'.format(number_of_points))
     
+    pcd_fields = mount_pcd_fields(in_fields)
+
     n = 0
     buffer_array = []
     i = 0
@@ -137,7 +123,7 @@ if __name__ == '__main__':
     for line in tqdm(f1):
         if i == buffer_size:
             i = 0
-            write_buffer(f2, buffer_array, binary=binary)
+            write_data(f2, buffer_array, binary=binary)
             buffer_array = []
             b+=1
         line_s = line.strip().split(' ')
@@ -151,6 +137,56 @@ if __name__ == '__main__':
         n += 1
         i += 1
     if i > 1:
-        write_buffer(f2, buffer_array, binary=binary)
+        write_data(f2, buffer_array, binary=binary)
     print('Done. {} points were processed. Errors: {} lines'.format(n, errors))
     f2.close()
+
+def write_pcd_by_pc(pc, outputname, in_fields, binary):
+    print('Converting to PCD.\n')
+    number_of_points = pc.shape[0]
+    print('{} points to be processed.'.format(number_of_points))
+    
+    pcd_fields = mount_pcd_fields(in_fields)
+
+ 
+    header = mount_header(number_of_points, pcd_fields, binary=binary)
+    if binary:
+        f2 = open(outputname, 'wb')
+        f2.write(bytes(header.encode('ascii')))
+    else:
+        f2 = open(outputname, 'w')
+        f2.write(header)
+        
+    n = 0
+    errors = 0
+    data = []
+    for line in tqdm(pc):
+        line_s = line
+        if len(line_s) != len(in_fields):
+            print('\nFields has {} dimensions, but the lines of the file has {}.'.format(len(in_fields), len(line_s)))
+            print('Data line: {}'.format(line_s))
+            line_s = [0.0 for x in in_fields]
+            errors += 1
+        l = mount_data_line(line_s, in_fields, pcd_fields)
+        data.append(l)
+        n += 1
+    write_data(f2, data, binary=binary)
+    print('Done. {} points were processed. Errors: {} lines'.format(n, errors))
+    f2.close()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Converts simple textual point cloud formats (TXT, XYZ, PTS) to PCD')
+    parser.add_argument('input', type=str, help='input file in .txt, .xyz or .pts.')
+    parser.add_argument('output', type=str, help='output file in .pcd.')
+    parser.add_argument('--fields', type=str, default = 'x,y,z,a,r,g,b', help='fields in order contained in textual file. Possible fields are:' + ','.join(POSSIBLE_FIELDS) + '. Put \'_\' in the fields to ignore. Default = x,y,z,a,r,g,b')
+    parser.add_argument('--buffer_size', type = int, default = 10000000, help='size of buffer to be used. It is needed to not use all the RAM from computer. Default = 10000000')
+    parser.add_argument('-b', '--binary', action='store_true', help='save in binary format. Default = False')
+    args = vars(parser.parse_args())
+
+    inputname = args['input']
+    outputname = args['output']
+    in_fields = args['fields'].split(',')
+    buffer_size = args['buffer_size']
+    binary = args['binary']
+
+    write_pcd_by_filename(inputname, outputname, in_fields, buffer_size=buffer_size, binary=binary)
