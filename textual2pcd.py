@@ -87,7 +87,7 @@ def write_data(f, data, binary=False):
     else:
         f.write('\n'.join([' '.join(map(str, x)) for x in data]))
 
-def textual2pcdFilename(inputname, outputname, in_fields, buffer_size=10000000, binary=False):
+def write_pcd_by_filename(inputname, outputname, in_fields, buffer_size=10000000, binary=False):
     print('Converting to PCD.\n')
     f1 = open(inputname, 'r')
     if inputname[-4:] == '.txt' or inputname[-4:] == '.xyz':
@@ -141,15 +141,14 @@ def textual2pcdFilename(inputname, outputname, in_fields, buffer_size=10000000, 
     print('Done. {} points were processed. Errors: {} lines'.format(n, errors))
     f2.close()
 
-def textual2pcdPC(pc, outputname, in_fields, binary):
+def write_pcd_by_pc(pc, outputname, in_fields, binary):
     print('Converting to PCD.\n')
-    number_of_points = pc.shp[0]
+    number_of_points = pc.shape[0]
     print('{} points to be processed.'.format(number_of_points))
     
     pcd_fields = mount_pcd_fields(in_fields)
 
-    n = 0
-    errors = 0
+ 
     header = mount_header(number_of_points, pcd_fields, binary=binary)
     if binary:
         f2 = open(outputname, 'wb')
@@ -157,22 +156,21 @@ def textual2pcdPC(pc, outputname, in_fields, binary):
     else:
         f2 = open(outputname, 'w')
         f2.write(header)
-    if in_fields == pcd_fields:
-        write_data(f2, pc, binary=binary)
-        n = number_of_points
-    else:
-        data = []
-        for line in tqdm(pc):
-            line_s = line
-            if len(line_s) != len(in_fields):
-                print('\nFields has {} dimensions, but the lines of the file has {}.'.format(len(in_fields), len(line_s)))
-                print('Data line: {}'.format(line_s))
-                line_s = [0.0 for x in in_fields]
-                errors += 1
-            l = mount_data_line(line_s, in_fields, pcd_fields)
-            data.append(l)
-            n += 1
-        write_data(f2, data, binary=binary)
+        
+    n = 0
+    errors = 0
+    data = []
+    for line in tqdm(pc):
+        line_s = line
+        if len(line_s) != len(in_fields):
+            print('\nFields has {} dimensions, but the lines of the file has {}.'.format(len(in_fields), len(line_s)))
+            print('Data line: {}'.format(line_s))
+            line_s = [0.0 for x in in_fields]
+            errors += 1
+        l = mount_data_line(line_s, in_fields, pcd_fields)
+        data.append(l)
+        n += 1
+    write_data(f2, data, binary=binary)
     print('Done. {} points were processed. Errors: {} lines'.format(n, errors))
     f2.close()
 
@@ -191,4 +189,4 @@ if __name__ == '__main__':
     buffer_size = args['buffer_size']
     binary = args['binary']
 
-    textual2pcdFilename(inputname, outputname, in_fields, buffer_size=buffer_size, binary=binary)
+    write_pcd_by_filename(inputname, outputname, in_fields, buffer_size=buffer_size, binary=binary)
