@@ -40,7 +40,7 @@ def mount_header(n_points, pcd_fields, binary=False):
         if f != 'label':
             header_t+= 'F '
         else:
-            header_t+= 'U '
+            header_t+= 'I '
     header_f = header_f[0:-1]
     header_s = header_s[0:-1]
     header_t = header_t[0:-1]
@@ -52,37 +52,11 @@ def mount_header(n_points, pcd_fields, binary=False):
 
     file_type = 'binary' if binary else 'ascii'
 
-    header = 'VERSION .7\nFIELDS {}\nSIZE {}\nTYPE {}\nCOUNT {}\nWIDTH {}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {}\nDATA {}\n'.format(header_f, header_s, header_t, header_c, n_points, n_points, file_type)
+    header = 'VERSION 0.7\nFIELDS {}\nSIZE {}\nTYPE {}\nCOUNT {}\nWIDTH {}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {}\nDATA {}\n'.format(header_f, header_s, header_t, header_c, n_points, n_points, file_type)
 
     return header
 
-def mount_ascii_data_line(line_s, in_fields, pcd_fields):
-    line = ''
-    next_index = 0
-    for f in pcd_fields:
-        if 'rgb' == f or 'rgba' == f:
-            r = np.uint8(line_s[in_fields.index('r')])
-            g = np.uint8(line_s[in_fields.index('g')])
-            b = np.uint8(line_s[in_fields.index('b')])
-            data = np.uint32(np.uint32(r) << 16 | np.uint32(g) << 8 | np.uint32(b))
-            if 'rgba' == f:
-                a = np.uint8(in_fields.index('a'))
-                data = np.uint32(np.uint32(a) << 24 | data)
-            data_p = pack('I', data)
-            line += str(unpack('f', data_p)[0]) + ' '
-        else:
-            if f == 'i':
-                intensity = int(line_s[in_fields.index(f)])
-                intensity/= 255
-                line_s[in_fields.index(f)] = str(intensity)
-                
-            line += line_s[in_fields.index(f)] + ' '
-            
-    line = line[0:-1]
-    line += '\n'
-    return line
-
-def mount_binary_data_line(line_s, in_fields, pcd_fields):
+def mount_data_line(line_s, in_fields, pcd_fields):
     line = []
     for f in pcd_fields:
         if 'rgb' == f or 'rgba' == f:
@@ -100,15 +74,18 @@ def mount_binary_data_line(line_s, in_fields, pcd_fields):
                 intensity = int(line_s[in_fields.index(f)])
                 intensity/= 255
                 line_s[in_fields.index(f)] = intensity
-                
-            line += [float(line_s[in_fields.index(f)])]
+            
+            if f == 'label':
+                line += [int(float(line_s[in_fields.index(f)]))]
+            else:     
+                line += [float(line_s[in_fields.index(f)])]
     return line
 
-def mount_data_line(line_s, in_fields, pcd_fields, binary=False):
+def write_buffer(f, buffer_array, binary=False):
     if binary:
-        return mount_binary_data_line(line_s, in_fields, pcd_fields)
+        f.write(bytes(pack("%sf" % len(buffer_array), *buffer_array)))
     else:
-        return mount_ascii_data_line(line_s, in_fields, pcd_fields)
+        f.write('\n'.join([' '.join(map(str, x)) for x in buffer_array]))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Converts simple textual point cloud formats (TXT, XYZ, PTS) to PCD')
@@ -117,6 +94,7 @@ if __name__ == '__main__':
     parser.add_argument('--fields', type=str, default = 'x,y,z,a,r,g,b', help='fields in order contained in textual file. Possible fields are:' + ','.join(POSSIBLE_FIELDS) + '. Put \'_\' in the fields to ignore. Default = x,y,z,a,r,g,b')
     parser.add_argument('--buffer_size', type = int, default = 10000000, help='size of buffer to be used. It is needed to not use all the RAM from computer. Default = 10000000')
     parser.add_argument('--number_of_points', type = int, default = 0, help='number of points in the file. It speeds-up the process when the file is TXT or XYZ. Default = 0')
+    parser.add_argument('-b', '--binary', action='store_true', help='save in binary format. Default = False')
     args = vars(parser.parse_args())
 
     inputname = args['input']
@@ -125,9 +103,9 @@ if __name__ == '__main__':
     pcd_fields = mount_pcd_fields(in_fields)
     buffer_size = args['buffer_size']
     number_of_points = args['number_of_points']
+    binary = args['binary']
 
     f1 = open(inputname, 'r')
-    f2 = open(outputname, 'wb')
     if inputname[-4:] == '.txt' or inputname[-4:] == '.xyz':
         print('Processing a {} file...'.format(inputname[-4:]))
         print('Getting number of points...')
@@ -149,12 +127,17 @@ if __name__ == '__main__':
     i = 0
     b = 0
     errors = 0
-    header = mount_header(number_of_points, pcd_fields, binary=True)
-    f2.write(bytes(header.encode('ascii')))
+    header = mount_header(number_of_points, pcd_fields, binary=binary)
+    if binary:
+        f2 = open(outputname, 'wb')
+        f2.write(bytes(header.encode('ascii')))
+    else:
+        f2 = open(outputname, 'w')
+        f2.write(header)
     for line in tqdm(f1):
         if i == buffer_size:
             i = 0
-            f2.write(bytes(pack("%sf" % len(buffer_array), *buffer_array)))
+            write_buffer(f2, buffer_array, binary=binary)
             buffer_array = []
             b+=1
         line_s = line.strip().split(' ')
@@ -163,11 +146,11 @@ if __name__ == '__main__':
             print('Data line: {}'.format(line_s))
             line_s = [0.0 for x in in_fields]
             errors += 1
-        l = mount_data_line(line_s, in_fields, pcd_fields, binary=True)
-        buffer_array += l
+        l = mount_data_line(line_s, in_fields, pcd_fields)
+        buffer_array.append(l)
         n += 1
         i += 1
     if i > 1:
-        f2.write(bytes(pack("%sf" % len(buffer_array), *buffer_array)))
+        write_buffer(f2, buffer_array, binary=binary)
     print('Done. {} points were processed. Errors: {} lines'.format(n, errors))
     f2.close()
