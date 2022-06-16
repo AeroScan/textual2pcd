@@ -142,7 +142,7 @@ def write_pcd_by_filename(inputname, outputname, in_fields, buffer_size=10000000
     f2.close()
 
 def write_pcd_by_pc(pc, outputname, in_fields, binary):
-    print('Converting to PCD.\n')
+    print('Converting to PCD...')
     number_of_points = pc.shape[0]
     print('{} points to be processed.'.format(number_of_points))
     
